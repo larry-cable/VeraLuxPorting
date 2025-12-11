@@ -19,7 +19,7 @@
  * Ported to PixInsight JavaScript Runtime (PJSR)
  */
 
-#feature-id    Killerciao's Scripts > VeraLux HyperMetric Stretch
+#feature-id    VHS-Porting > VeraLux HyperMetric Stretch
 #feature-info  Physics-based photometric hyperbolic stretch engine.<br/>\
                <br/>\
                Preserves color ratios while maximizing dynamic range.<br/>\
