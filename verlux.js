@@ -1,17 +1,40 @@
+/*
+ * VeraLux — HyperMetric Stretch
+ * Photometric Hyperbolic Stretch Engine for PixInsight
+ *
+ * Based on the original Python implementation by Riccardo Paterniti
+ * Copyright (c) 2025 Riccardo Paterniti
+ * Contact: info@veralux.space
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * Ported to PixInsight JavaScript Runtime (PJSR)
+ */
+
 #feature-id    Killerciao's Scripts > VeraLux HyperMetric Stretch
 #feature-info  Physics-based photometric hyperbolic stretch engine.<br/>\
                <br/>\
                Preserves color ratios while maximizing dynamic range.<br/>\
                Sensor-aware luminance extraction with QE weighting.<br/>\
+               Includes Hybrid Color Grip engine.<br/>\
                <br/>\
                <b>Requirements:</b><br/>\
                • Linear image (not stretched)<br/>\
                • Background extracted<br/>\
-               • Color calibrated (for RGB)<br/>\
+               • Color calibrated (SPCC/PCC)<br/>\
                <br/>\
-               Version 1.0.5
+               Based on the original Python implementation by Riccardo Paterniti
 
 #feature-icon  verlux-icon.svg
+
 #include <pjsr/Sizer.jsh>
 #include <pjsr/FrameStyle.jsh>
 #include <pjsr/TextAlign.jsh>
@@ -121,9 +144,14 @@ var SENSOR_PROFILES = {
 
 var DEFAULT_PROFILE = "Rec.709 (Recommended)";
 
+// =============================================================================
+//  CORE ENGINE (Single Source of Truth)
+// =============================================================================
+
 function VeraLuxCore() {}
 
 VeraLuxCore.percentile = function(arr, p) {
+   // Basic implementation for unsorted arrays
    var sorted = arr.slice().sort(function(a, b) { return a - b; });
    var idx = (p / 100.0) * (sorted.length - 1);
    var lower = Math.floor(idx);
@@ -138,6 +166,7 @@ VeraLuxCore.calculateAnchor = function(img, isRGB) {
    var w = img.width;
    var h = img.height;
    var totalPixels = w * h;
+   // Subsample for speed
    var step = Math.max(1, Math.floor(totalPixels / 500000));
    
    if (isRGB) {
@@ -165,7 +194,7 @@ VeraLuxCore.calculateAnchor = function(img, isRGB) {
    }
 };
 
-VeraLuxCore.ghsStretch = function(value, D, b, SP) {
+VeraLuxCore.hyperbolicStretch = function(value, D, b, SP) {
    D = Math.max(D, 0.1);
    b = Math.max(b, 0.1);
    SP = SP || 0.0;
@@ -192,10 +221,12 @@ VeraLuxCore.solveLogD = function(medianIn, targetMedian, bVal) {
    var highLog = 7.0;
    var bestLogD = 2.0;
    var epsilon = 0.0001;
+   
+   // Binary search
    for (var iter = 0; iter < 40; iter++) {
       var midLog = (lowLog + highLog) / 2.0;
       var midD = Math.pow(10.0, midLog);
-      var testVal = this.ghsStretch(medianIn, midD, bVal, 0.0);
+      var testVal = this.hyperbolicStretch(medianIn, midD, bVal, 0.0);
       if (Math.abs(testVal - targetMedian) < epsilon) {
          bestLogD = midLog;
          break;
@@ -208,6 +239,10 @@ VeraLuxCore.solveLogD = function(medianIn, targetMedian, bVal) {
    }
    return bestLogD;
 };
+
+// =============================================================================
+//  MAIN PROCESSING ENGINE
+// =============================================================================
 
 function processVeraLux(img, params, progressCallback) {
    if (progressCallback) progressCallback("Analyzing image data...", 0);
@@ -223,19 +258,24 @@ function processVeraLux(img, params, progressCallback) {
    var convergence = params.convergence;
    var processingMode = params.processingMode;
    var targetBg = params.targetBg;
-   var saturation = params.saturation;
+   var colorGrip = params.colorGrip !== undefined ? params.colorGrip : 1.0;
    
+   // 1. Calculate Anchor
    if (progressCallback) progressCallback("Calculating black point...", 5);
    var anchor = VeraLuxCore.calculateAnchor(img, isRGB);
    
    var result = new Image(w, h, nc, isRGB ? ColorSpace_RGB : ColorSpace_Gray, 32, SampleType_Real);
-   result.assign(img);
    
    if (progressCallback) progressCallback("Starting Stretch...", 10);
    
    var epsilon = 1e-9;
    var lastPct = 0;
-   
+   var D_val = Math.pow(10, logD);
+   var pedestal = 0.005; // Safety pedestal matching Python v1.2.2
+
+   // Pre-calc constants
+   var oneMinusGrip = 1.0 - colorGrip;
+
    for (var y = 0; y < h; y++) {
       var pct = 10 + Math.round((y / h) * 80);
       if (pct !== lastPct) {
@@ -246,37 +286,63 @@ function processVeraLux(img, params, progressCallback) {
 
       for (var x = 0; x < w; x++) {
          if (isRGB) {
+            // Anchor subtraction
             var r = Math.max(0, img.sample(x, y, 0) - anchor);
             var g = Math.max(0, img.sample(x, y, 1) - anchor);
             var b = Math.max(0, img.sample(x, y, 2) - anchor);
             
+            // Extract Luminance
             var L = weights[0] * r + weights[1] * g + weights[2] * b;
             var Lsafe = L + epsilon;
             
+            // Vector Ratios
             var rRatio = r / Lsafe;
             var gRatio = g / Lsafe;
             var bRatio = b / Lsafe;
             
-            var Lstr = VeraLuxCore.ghsStretch(L, Math.pow(10, logD), protectB, 0);
+            // Hyperbolic Stretch
+            var Lstr = VeraLuxCore.hyperbolicStretch(L, D_val, protectB, 0);
             Lstr = Math.max(0, Math.min(1, Lstr));
             
+            // Convergence
             var k = Math.pow(Lstr, convergence);
             
-            var rColor = Lstr * (rRatio * (1.0 - k) + k);
-            var gColor = Lstr * (gRatio * (1.0 - k) + k);
-            var bColor = Lstr * (bRatio * (1.0 - k) + k);
+            // --- VECTOR PATH (Scientific) ---
+            var rVec = Lstr * (rRatio * (1.0 - k) + k);
+            var gVec = Lstr * (gRatio * (1.0 - k) + k);
+            var bVec = Lstr * (bRatio * (1.0 - k) + k);
             
-            var rFinal = rColor * saturation + Lstr * (1.0 - saturation);
-            var gFinal = gColor * saturation + Lstr * (1.0 - saturation);
-            var bFinal = bColor * saturation + Lstr * (1.0 - saturation);
+            var rFinal = rVec;
+            var gFinal = gVec;
+            var bFinal = bVec;
+
+            // --- HYBRID PATH (Color Grip) ---
+            // If colorGrip < 1.0, blend with scalar stretch
+            if (colorGrip < 1.0) {
+               var rScal = VeraLuxCore.hyperbolicStretch(r, D_val, protectB, 0);
+               var gScal = VeraLuxCore.hyperbolicStretch(g, D_val, protectB, 0);
+               var bScal = VeraLuxCore.hyperbolicStretch(b, D_val, protectB, 0);
+               
+               // Clip scalars
+               rScal = Math.max(0, Math.min(1, rScal));
+               gScal = Math.max(0, Math.min(1, gScal));
+               bScal = Math.max(0, Math.min(1, bScal));
+
+               rFinal = rVec * colorGrip + rScal * oneMinusGrip;
+               gFinal = gVec * colorGrip + gScal * oneMinusGrip;
+               bFinal = bVec * colorGrip + bScal * oneMinusGrip;
+            }
             
-            result.setSample(Math.max(0, Math.min(1, rFinal * 0.995 + 0.005)), x, y, 0);
-            result.setSample(Math.max(0, Math.min(1, gFinal * 0.995 + 0.005)), x, y, 1);
-            result.setSample(Math.max(0, Math.min(1, bFinal * 0.995 + 0.005)), x, y, 2);
+            // Apply Pedestal and Clip
+            result.setSample(Math.max(0, Math.min(1, rFinal * (1.0 - pedestal) + pedestal)), x, y, 0);
+            result.setSample(Math.max(0, Math.min(1, gFinal * (1.0 - pedestal) + pedestal)), x, y, 1);
+            result.setSample(Math.max(0, Math.min(1, bFinal * (1.0 - pedestal) + pedestal)), x, y, 2);
+
          } else {
+            // Mono
             var val = Math.max(0, img.sample(x, y, 0) - anchor);
-            var str = VeraLuxCore.ghsStretch(val, Math.pow(10, logD), protectB, 0);
-            result.setSample(Math.max(0, Math.min(1, str * 0.995 + 0.005)), x, y, 0);
+            var str = VeraLuxCore.hyperbolicStretch(val, D_val, protectB, 0);
+            result.setSample(Math.max(0, Math.min(1, str * (1.0 - pedestal) + pedestal)), x, y, 0);
          }
       }
    }
@@ -303,6 +369,7 @@ function applyAdaptiveScaling(img, weights, targetBg, progressCallback) {
    var step = Math.max(1, Math.floor(totalPixels / 500000));
    
    var lumaSamples = [];
+   // Re-scan for stats
    for (var i = 0; i < totalPixels; i += step) {
       var y = Math.floor(i / w);
       var x = i % w;
@@ -353,22 +420,29 @@ function applyAdaptiveScaling(img, weights, targetBg, progressCallback) {
    if (softCeil <= globalFloor) softCeil = globalFloor + 1e-6;
    if (hardCeil <= softCeil) hardCeil = softCeil + 1e-6;
    
-   var scaleContrast = (0.979) / (softCeil - globalFloor);
-   var scaleSafety = (0.999) / (hardCeil - globalFloor);
+   var PEDESTAL = 0.001;
+   var TARGET_SOFT = 0.98;
+   var TARGET_HARD = 1.0;
+
+   var scaleContrast = (TARGET_SOFT - PEDESTAL) / (softCeil - globalFloor + 1e-9);
+   var scaleSafety = (TARGET_HARD - PEDESTAL) / (hardCeil - globalFloor + 1e-9);
    var finalScale = Math.min(scaleContrast, scaleSafety);
    
    var result = new Image(w, h, nc, isRGB ? ColorSpace_RGB : ColorSpace_Gray, 32, SampleType_Real);
+   
+   // Apply Expansion
    for (var c = 0; c < nc; c++) {
       for (var y = 0; y < h; y++) {
          for (var x = 0; x < w; x++) {
             var val = img.sample(x, y, c);
-            var expanded = (val - globalFloor) * finalScale + 0.001;
+            var expanded = (val - globalFloor) * finalScale + PEDESTAL;
             expanded = Math.max(0, Math.min(1, expanded));
             result.setSample(expanded, x, y, c);
          }
       }
    }
    
+   // Apply MTF to match Target BG
    lumaSamples = [];
    for (var i = 0; i < totalPixels; i += step) {
       var y = Math.floor(i / w);
@@ -420,37 +494,43 @@ function applySoftClip(img, threshold, rolloff) {
    return result;
 }
 
+// =============================================================================
+//  GUI
+// =============================================================================
+
 var p_sensorProfile = DEFAULT_PROFILE;
-var p_processingMode = "scientific"; 
+var p_processingMode = "ready_to_use"; // Default to Ready-to-Use per v1.2.2
 var p_targetBg = 0.20;
-var p_logD = 4.88;
+var p_logD = 2.00; // Reset default to 2.0
 var p_protectB = 6.0;
 var p_convergence = 3.50;
-var p_saturation = 0.90;
+var p_colorGrip = 1.00; // New parameter
 
 function VeraLuxDialog() {
    this.__base__ = Dialog;
    this.__base__();
    
-   var VERSION = "1.2.1";
+   var VERSION = "1.2.2 (PJSR)";
    
    var headerStyle = "font-size: 14pt; font-weight: bold; color: #4aa3df;";
    var subHeaderStyle = "font-size: 10pt; color: #4aa3df;";
    var infoStyle = "font-size: 9pt; color: #888; font-style: italic;";
    var checkStyle = "color: #aaa;"; 
    
-   this.titleLabel = new Label(this);
+	this.titleLabel = new Label(this);
    this.titleLabel.text = "VeraLux HyperMetric Stretch v" + VERSION;
    this.titleLabel.styleSheet = headerStyle;
    this.titleLabel.textAlignment = TextAlign_Center;
    
    this.subtitleLabel = new Label(this);
-   this.subtitleLabel.text = "Photometric Hyperbolic Stretch Engine";
+   this.subtitleLabel.text = "Photometric Hyperbolic Stretch Engine\n" + 
+                             "Original Python Implementation by Riccardo Paterniti © 2025";
    this.subtitleLabel.styleSheet = subHeaderStyle;
    this.subtitleLabel.textAlignment = TextAlign_Center;
    
    this.reqLabel = new Label(this);
-   this.reqLabel.text = "Requirement: Linear Data • Color Calibration (SPCC) Applied";
+   this.reqLabel.text = "Ported to PixInsight\n" + 
+                        "Requirement: Linear Data • Color Calibration (SPCC) Applied";
    this.reqLabel.styleSheet = infoStyle;
    this.reqLabel.textAlignment = TextAlign_Center;
 
@@ -488,7 +568,7 @@ function VeraLuxDialog() {
          dlg.modeInfoLbl.text = "✓ Star-Safe Expansion<br>✓ Linked MTF Stretch<br>✓ Soft-clip highlights<br>✓ Ready for export";
       } else {
          p_processingMode = "scientific";
-         dlg.modeInfoLbl.text = "✓ Pure GHS stretch (1.0)<br>✓ Manual tone mapping<br>✓ Lossless data<br>✓ Accurate for scientific";
+         dlg.modeInfoLbl.text = "✓ Pure IHS stretch (1.0)<br>✓ Manual tone mapping<br>✓ Lossless data<br>✓ Accurate for scientific";
       }
    };
    this.radReady.onClick = this.updateModeText;
@@ -580,7 +660,7 @@ function VeraLuxDialog() {
    this.engineGroup.sizer.add(this.rowD_B);
 
    this.physGroup = new GroupBox(this);
-   this.physGroup.title = "3. Physics & Color Control";
+   this.physGroup.title = "3. Physics & Convergence";
    this.physGroup.sizer = new VerticalSizer;
    this.physGroup.sizer.margin = 8;
    
@@ -593,17 +673,19 @@ function VeraLuxDialog() {
    this.ncConv.toolTip = "<p>Controls how fast saturated colors transition to white. Fixes donut holes in stars.</p>";
    this.ncConv.onValueUpdated = function(val) { p_convergence = val; };
 
-   this.ncSat = new NumericControl(this);
-   this.ncSat.label.text = "Saturation Amount:";
-   this.ncSat.label.minWidth = 200;
-   this.ncSat.setRange(0.0, 1.0);
-   this.ncSat.setPrecision(2);
-   this.ncSat.slider.setRange(0, 100);
-   this.ncSat.toolTip = "<p>Adjust final color intensity. 1.00 = Preserves physical vectors. Lower values desaturate.</p>";
-   this.ncSat.onValueUpdated = function(val) { p_saturation = val; };
+   this.ncGrip = new NumericControl(this);
+   this.ncGrip.label.text = "Chromatic Preservation (Color Grip):";
+   this.ncGrip.label.minWidth = 200;
+   this.ncGrip.setRange(0.0, 1.0);
+   this.ncGrip.setPrecision(2);
+   this.ncGrip.slider.setRange(0, 100);
+   this.ncGrip.toolTip = "<p><b>Color Grip:</b> Controls the rigor of Color Vector preservation.<br>" +
+                        "• <b>1.00 (Default):</b> Pure VeraLux. 100% Vector lock. Maximum vividness.<br>" +
+                        "• <b>< 1.00:</b> Blends with standard Scalar stretch. Softens star cores and relaxes saturation.</p>";
+   this.ncGrip.onValueUpdated = function(val) { p_colorGrip = val; };
 
    this.physGroup.sizer.add(this.ncConv);
-   this.physGroup.sizer.add(this.ncSat);
+   this.physGroup.sizer.add(this.ncGrip);
 
    this.progressLabel = new Label(this);
    this.progressLabel.text = "Ready.";
@@ -661,7 +743,7 @@ function VeraLuxDialog() {
          convergence: p_convergence,
          processingMode: p_processingMode,
          targetBg: p_targetBg,
-         saturation: p_saturation
+         colorGrip: p_colorGrip
       };
 
       var callback = function(msg, percent) {
@@ -714,7 +796,11 @@ function VeraLuxDialog() {
    this.sizer.addSpacing(6);
    this.sizer.add(this.btnSizer);
 
-   this.windowTitle = "VeraLux v" + VERSION;
+	this.windowTitle = "VeraLux v" + VERSION;
+   
+   // Force a minimum width to prevent the window from being too small
+   this.minHeight = 800; 
+   
    this.adjustToContents();
    this.setFixedSize();
 
@@ -735,7 +821,7 @@ function VeraLuxDialog() {
       this.ncLogD.setValue(p_logD);
       this.ncProtect.setValue(p_protectB);
       this.ncConv.setValue(p_convergence);
-      this.ncSat.setValue(p_saturation);
+      this.ncGrip.setValue(p_colorGrip);
    };
 
    this.saveParams = function() {
@@ -743,19 +829,19 @@ function VeraLuxDialog() {
       p_logD = this.ncLogD.value;
       p_protectB = this.ncProtect.value;
       p_convergence = this.ncConv.value;
-      p_saturation = this.ncSat.value;
+      p_colorGrip = this.ncGrip.value;
       p_sensorProfile = this.sensorCombo.itemText(this.sensorCombo.currentItem);
       p_processingMode = this.radReady.checked ? "ready_to_use" : "scientific";
    };
 
    this.resetDefaults = function() {
-      p_processingMode = "scientific";
+      p_processingMode = "ready_to_use";
       p_sensorProfile = DEFAULT_PROFILE;
       p_targetBg = 0.20;
-      p_logD = 4.88;
+      p_logD = 2.0;
       p_protectB = 6.0;
       p_convergence = 3.5;
-      p_saturation = 0.90;
+      p_colorGrip = 1.00;
       this.loadParams();
    };
 
@@ -773,6 +859,7 @@ function VeraLuxDialog() {
 
       var anchor = VeraLuxCore.calculateAnchor(img, isRGB);
       var samples = [];
+      // Use efficient sampling
       var step = Math.max(1, Math.floor((img.width*img.height)/100000));
       for(var i=0; i<img.width*img.height; i+=step) {
          var x = i % img.width; var y = Math.floor(i/img.width);
@@ -801,7 +888,7 @@ function main() {
       p_logD = Parameters.getReal("logD");
       p_protectB = Parameters.getReal("protectB");
       p_convergence = Parameters.getReal("conv");
-      if(Parameters.has("sat")) p_saturation = Parameters.getReal("sat");
+      if(Parameters.has("grip")) p_colorGrip = Parameters.getReal("grip");
    }
 
    if (Parameters.isViewTarget) {
@@ -816,7 +903,7 @@ function main() {
          convergence: p_convergence,
          processingMode: p_processingMode,
          targetBg: p_targetBg,
-         saturation: p_saturation
+         colorGrip: p_colorGrip
       };
       
       var resImg = processVeraLux(view.image, params, function(msg){ console.writeln(msg); });
@@ -839,7 +926,7 @@ function main() {
    Parameters.set("logD", p_logD);
    Parameters.set("protectB", p_protectB);
    Parameters.set("conv", p_convergence);
-   Parameters.set("sat", p_saturation);
+   Parameters.set("grip", p_colorGrip);
 }
 
 main();
