@@ -9,7 +9,7 @@
 
    <!-- Update Package Configuration -->
    <platform os="all" arch="noarch" version="1.8.9:1.9.9">
-      <package fileName="VeraLux-Suite-v2.0.7.zip" sha1="84D5ABD0FA617B83724B1E0DAEDB13CBCEC9C93C" type="script" releaseDate="20251223">
+      <package fileName="VeraLux-Porting-v2.0.7.zip" sha1="84d5abd0fa617b83724b1e0daedb13cbcec9c93c" type="script" releaseDate="20251223">
          <title>VeraLux Suite v2.0.7</title>
          <title>VeraLux Suite v2.0.7</title>
          <description>
