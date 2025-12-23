@@ -1,15 +1,15 @@
-# VeraLux — HyperMetric Stretch for PixInsight
+# VeraLux Suite for PixInsight
 
 ![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)
 ![Platform](https://img.shields.io/badge/Platform-PixInsight-orange)
-![Version](https://img.shields.io/badge/Version-1.2.2-green)
+![Version](https://img.shields.io/badge/Version-2.0.7-green)
 
-**A Physics-based Photometric Hyperbolic Stretch Engine.**
+**The Unified Photometric Engine: HyperMetric Stretch & StarComposer.**
 
 > [!IMPORTANT]
 > **Original Authorship & Credits**
 >
-> This script is a port of the original **VeraLux** tool developed for Siril/Python by **Riccardo Paterniti**.
+> This script is a port of the original **VeraLux** tools developed for Siril/Python by **Riccardo Paterniti**.
 > All credit for the underlying mathematics, the "True Color" methodology, and the sensor weighting logic belongs to him.
 >
 > *   **Original Project:** [VeraLux.space](https://veralux.space)
@@ -20,63 +20,81 @@
 
 ## 📖 About This Port
 
-This repository houses a **PixInsight JavaScript Runtime (PJSR)** implementation of the VeraLux engine. It replicates the functionality of the original Python script (v1.2.2), allowing PixInsight users to benefit from Riccardo's photometric stretching methodology.
+This repository houses a **PixInsight JavaScript Runtime (PJSR)** implementation of the VeraLux ecosystem. It unifies two powerful engines into a single interface:
+
+1.  **HyperMetric Stretch (HMS):** A physics-based linear-to-nonlinear stretcher (Ported from Python v1.3.1).
+2.  **StarComposer:** A high-fidelity star reconstruction and composition engine (Ported from Python v1.0.2).
 
 ### 🤖 Origin Story
-This project began as a personal experiment to test the capabilities of modern AI coding assistants. I wanted to see if an AI could accurately translate complex Python/NumPy logic into PixInsight's specific JavaScript implementation.
-
-While it started as a private test, the repository was discovered and shared by the community before a formal release was prepared. I have since polished the code, ensured license compliance, and updated the math to match the latest official version (1.2.2).
+This project began as a personal experiment to test the capabilities of modern AI coding assistants in translating complex Python/NumPy logic into PixInsight's specific JavaScript implementation. It has since evolved into a fully maintained suite, ensuring PixInsight users have access to Riccardo's latest photometric methodologies.
 
 ---
 
 ## ✨ Key Features
 
-VeraLux operates on a fundamental axiom: standard histogram transformations often destroy the photometric relationships between color channels (hue shifts).
+### Module 1: HyperMetric Stretch
+Operates on the axiom that standard histogram transformations destroy photometric color ratios (hue shifts).
 
-*   **Photometric Integrity:** Decouples Luminance geometry from Chromatic vectors to preserve true color.
-*   **Sensor-Aware:** Includes a database of Quantum Efficiency (QE) weights for specific sensors (IMX571, IMX533, Canon, Nikon, etc.) for accurate luminance extraction.
-*   **Auto-Solver:** Automatically calculates the optimal Stretch Factor (`Log D`) to reach your target background level.
-*   **Hybrid Color Grip:** (New in v1.2.2) Allows blending between "Scientific" vector preservation and "Visual" scalar stretching to manage star core saturation.
-*   **Adaptive "Star-Safe" Scaling:** Prevents star bloat during the non-linear expansion phase.
+*   **Smart Iterative Solver (New in v2.0):** The "Auto-Calc" now simulates the entire post-stretch scaling pipeline. It detects black clipping ("Floating Sky Check") and iteratively adjusts the target to find the safest maximum contrast.
+*   **Unified Color Strategy (New in v2.0):** A single, intuitive slider to balance the equation.
+    *   **Left (<0):** Cleans noise by increasing Shadow Convergence.
+    *   **Right (>0):** Softens highlights by relaxing Color Grip.
+*   **Sensor-Aware:** Expanded database (v2.1) including **Seestar S50/S30**, **IMX585**, and **Narrowband (HOO/SHO)** profiles.
+
+### Module 2: StarComposer
+Decouples the star field from the main object to prevent bloating and bleaching.
+
+*   **Star Surgery:** Includes native tools for **Large Structure Rejection (LSR)** (removing galaxy cores from star masks) and **Optical Healing** (fixing chromatic aberration/halos).
+*   **Vector Preservation:** Stretches stars without losing their core color temperature.
+*   **Auto-Stretch Stars:** A specialized solver that ignores black backgrounds to find the optimal visibility for linear star masks.
+*   **Composition Modes:** Choose between **Linear Add** (Physical accuracy) or **Screen** (Safe blending to prevent core saturation).
 
 ---
-## ⏩ Automatic Installation
+
+## ⏩ Automatic Installation (Recommended)
 
 1.  Open **PixInsight**.
-2.  Go to **Resources > Updates > Manage Repositories > add > "https://raw.githubusercontent.com/killerciao/VeraLuxPorting/main/"**
-3.   Go to **Resources > Updates > Manage Repositories > Check For update > install the new updates >restart Pixinsight**
+2.  Go to **Resources > Updates > Manage Repositories**.
+3.  Click **Add** and paste the URL: `https://raw.githubusercontent.com/killerciao/VeraLuxPorting/main/`
+4.  Click **OK**.
+5.  Go to **Resources > Updates > Check for Updates**.
+6.  Install the package and **Restart PixInsight**.
 
 ---
+
 ## 🛠️ Manual Installation
 
-1.  Download the `verlux.js` file from this repository.
-2.  Open **PixInsight**.
-3.  Go to **Script > Execute Script File...**
-4.  Navigate to where you downloaded `verlux.js` and select it.
-
-*(Optional): You can add it to your "Featured Scripts" menu within PixInsight for faster access.*
+1.  Download the `.zip` file from the latest Release.
+2.  Extract `VeraLuxSuite.js`.
+3.  Open **PixInsight**.
+4.  Go to **Script > Execute Script File...**
+5.  Select `VeraLuxSuite.js`.
 
 ---
 
 ## 🚀 Usage Guide
 
-### Prerequisites
-*   The image must be **Linear** (not yet stretched).
-*   **Background Extraction** (GraXpert/DBE) must be applied.
-*   **Color Calibration** (SPCC) must be applied. *This is critical as VeraLux locks color vectors based on this calibration.*
+### [Tab 1] HyperMetric Stretch
+*Use this for your main image (Linear).*
 
-### Step-by-Step
+1.  **Prerequisites:** Image must be **Linear**, **Background Extracted**, and **Color Calibrated (SPCC)**.
+2.  **Mode:** Select **Ready-to-Use** for the new Unified Strategy workflow.
+3.  **Sensor:** Select your camera profile (or Rec.709).
+4.  **Solve:** Click **⚡ Auto-Calc Log D**. The solver will find the perfect stretch intensity.
+5.  **Refine:** Use the **Color Strategy** slider.
+    *   Background too noisy? Slide **Left**.
+    *   Stars too hard/white? Slide **Right**.
+6.  **Process:** Click **PROCESS STRETCH**.
 
-1.  **Processing Mode:**
-    *   **Ready-to-Use:** Applies Star-Safe expansion, linked MTF, and soft-clipping. Best for aesthetic images.
-    *   **Scientific:** Pure mathematical stretch clipped at 1.0. Best for data analysis.
-2.  **Sensor Calibration:** Select your camera sensor from the list. If unknown, use `Rec.709`.
-3.  **Target Background:** Set your desired median background (Default `0.20`).
-4.  **Auto-Calculate:** Click **⚡ Auto-Calculate Log D**. The script will analyze your data and set the stretch intensity automatically.
-5.  **Fine Tuning (Optional):**
-    *   **Protect b:** Controls highlight protection. Higher values = tighter stars.
-    *   **Color Grip:** `1.00` is pure vector preservation (Vivid). Lower values blend in standard stretching to soften star cores.
-6.  **Process:** Click the green **PROCESS** button.
+### [Tab 2] StarComposer
+*Use this to recombine a Linear Starmask with a Stretched Starless image.*
+
+1.  **Input:** Select your **Starmask (Linear)** and **Starless Base (Stretched)** from the dropdowns.
+2.  **Calibrate:** Click **⚡ Auto-Stretch Stars**. This calculates the intensity needed to make linear stars visible.
+3.  **Surgery (Optional):**
+    *   **LSR:** Increase if your star mask contains pieces of nebulosity or galaxy cores.
+    *   **Healing:** Increase if your stars have purple/green halos.
+4.  **Process:** Click **PROCESS STAR COMPOSITION**.
 
 ---
 
