@@ -17,8 +17,9 @@
 > *   **License:** GPL-3.0-or-later
 >
 > This repository is maintained by **lucasssvaz** (GitHub: [lucasssvaz](https://github.com/lucasssvaz)).
+>
 > The original JavaScript/PJSR port was created by **killerciao** (GitHub: [killerciao](https://github.com/killerciao)).
-> Thanks to them for their contributions to the community.
+> Thanks to Riccardo Paterniti for the original Python implementation and to killerciao for the original JavaScript/PJSR port.
 
 ---
 
@@ -135,6 +136,6 @@ This project is licensed under the **GNU General Public License v3.0**.
 
 You are free to use, modify, and distribute this software under the terms of the GPLv3. Any derivative works must also be open-source and preserve the original copyright notices and attribution to the original authors.
 
-Copyright (c) 2026 lucasssvaz (Maintained JavaScript/PJSR port)
-Copyright (c) 2025 killerciao (Original JavaScript/PJSR port)
+Copyright (c) 2026 lucasssvaz (Maintained JavaScript/PJSR port)\
+Copyright (c) 2025 killerciao (Original JavaScript/PJSR port)\
 Copyright (c) 2025 Riccardo Paterniti (Original Python implementation)
